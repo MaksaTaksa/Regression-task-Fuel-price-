@@ -2,13 +2,8 @@ import pandas as pd
 import numpy as np
 from sklearn.impute import SimpleImputer
 from sklearn.cluster import KMeans
-
-def noise_processing_func(df):
-    df_copy = df.copy()
-    df_copy["Fuel_station_manager"] = df_copy["Fuel_station_manager"].where(
-    df_copy["Fuel_station_manager"].map(df_copy["Fuel_station_manager"].value_counts()) >= 20, "Other")
-    df_copy["City"] = df_copy["City"].where(df_copy["City"].map(df_copy["City"].value_counts()) >= 20, "Other") 
-    return df_copy
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.validation import check_is_fitted
 
 def datetime_processing_func(df):
     df_copy = df.copy()
@@ -33,7 +28,38 @@ def lag_feature_func(df, sort_feature):
     df_sorted["price_lag"] = df_sorted.groupby(["Id", "isSelf"])["Price"].shift(1)
     return df_sorted.sort_index()
 
+class Region_Generator(BaseEstimator, TransformerMixin):
+    def __init__(self, n_clusters = 5, random_state =42):
+        self.n_clusters = n_clusters
+        self.random_state = random_state
+    def fit(self, X, y=None):
+        
+        self.imputer_ = SimpleImputer(strategy="mean")
+        coords = self.imputer_.fit_transform(X[["Latitude", "Longitudine"]])
+        self.columns_ = list(X.columns)
+        self.kmeans_ = KMeans(
+            n_clusters=self.n_clusters,
+            random_state=self.random_state,
+            n_init=10)
+        self.kmeans_.fit(coords)
+        
+        return self
 
+    def transform(self, X):
+        check_is_fitted(self, ["imputer_", "kmeans_"])
+
+        X = X.copy()
+        coords = self.imputer_.transform(
+            X[["Latitude", "Longitudine"]]
+        )
+        X["Regions"] = self.kmeans_.predict(coords)
+        return X
+
+    def get_feature_names_out(self, input_features=None):
+        return [*self.columns_, "Regions"]
+        
+        
+    
 def region_generation_func(df):
     stations = df[["Id", "Latitude", "Longitudine"]].dropna().drop_duplicates("Id")
     kmeans = KMeans(n_clusters=10, random_state=42, n_init=10)
